@@ -1,0 +1,171 @@
+---
+title: "Untitled"
+author: "Rahul Kasar"
+date: "2/24/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+dat = read.table('realestate.txt', header = T)
+head(dat)
+
+Price=dat$SalePrice
+Sq_feet=dat$SqFeet
+Beds=dat$Beds
+Baths=dat$Baths
+AC=factor(dat$Air)
+Garage=dat$Garage
+Pool=factor(dat$Pool)
+Year=factor(dat$Year)
+Quality=factor(dat$Quality)
+Style=factor(dat$Style)
+Lot=dat$Lot
+Highway=factor(dat$Highway)
+
+```
+
+```{r}
+#test to see if any of the variables are significant in predicting price
+mod.reduced = lm(Price~1)
+mod.full = lm(Price~Sq_feet+Beds+Baths+AC+Garage+Pool+Year+Quality+Style+Lot+Highway)
+anova(mod.reduced,mod.full)
+```
+
+```{r} 
+#use reg subsets to help choose variables when building our model
+library(leaps)
+mod = regsubsets(cbind(Sq_feet,Beds,Baths,AC,Garage,Pool,Year,Quality,Style,Lot,Highway),Price)
+summary.mod = summary(mod)
+summary.mod$which
+summary.mod$adjr2
+```
+```{r}
+#new working model
+mod.reduced = lm(Price~Sq_feet+Style+Year+Quality+Lot)
+s=summary(mod.reduced)
+s
+```
+
+```{r}
+betas = s$coefficients
+#black line
+yhatq1=betas[1]+betas[2]*Sq_feet[Quality==1]
+#red line
+yhatq2=betas[1]+betas[2]*Sq_feet[Quality==2]+betas["Quality2","Estimate"]
+#green line
+yhatq3=betas[1]+betas[2]*Sq_feet[Quality==3]+betas["Quality3","Estimate"]
+plot(Sq_feet,Price,xlab='sqfeet',ylab='price',main='graph with quality')
+points(Sq_feet[Quality==2],Price[Quality==2],col = 2)
+points(Sq_feet[Quality==3],Price[Quality==3],col = 3)
+
+lines(Sq_feet[Quality==1],yhatq1,col=1)
+lines(Sq_feet[Quality==2],yhatq2,col=2)
+lines(Sq_feet[Quality==3],yhatq3,col=3)
+
+legend('topleft', bty='n',pch=20,col=c(1,2,3),c('quality1','quality2','quality3'),lty = c(1,1,1))
+```
+
+The lines are parallel, so there is no interacction between Sq_feet and quality.
+
+```{r}
+
+yhats1=betas[1]+betas[2]*Sq_feet[Style==1]
+yhats2=betas[1]+betas[2]*Sq_feet[Style==2]+betas[3]
+yhats3=betas[1]+betas[2]*Sq_feet[Style==3]+betas[4]
+yhats4=betas[1]+betas[2]*Sq_feet[Style==4]+betas[5]
+yhats5=betas[1]+betas[2]*Sq_feet[Style==5]+betas[6]
+yhats6=betas[1]+betas[2]*Sq_feet[Style==6]+betas[7]
+yhats7=betas[1]+betas[2]*Sq_feet[Style==7]+betas[8]
+yhats9=betas[1]+betas[2]*Sq_feet[Style==9]+betas[9]
+yhats10=betas[1]+betas[2]*Sq_feet[Style==10]+betas[10]
+yhats11=betas[1]+betas[2]*Sq_feet[Style==11]+betas[11]
+yhats = c(yhats1,yhats2,yhats3,yhats4,yhats5,yhats6,yhats7,yhats9,yhats10,yhats11)
+plot(Sq_feet,Price,xlab='sqfeet',ylab='price',main='graph with style')
+#for (i in 1:7){
+  points(Sq_feet[Style==1],Price[Style==1],col = 2)
+  lines(Sq_feet[Style==1],yhats[1],col = 2)
+#}
+#come back to this later
+```
+
+```{r}
+sq_feetQual= Sq_feet*Quality
+sq_feetstyle=Sq_feet*Style
+yearstyle=Year*Style
+
+mod.full=lm(Price~Sq_feet+Style+Year+Quality+Lot+Sq_feet*Quality+Sq_feet*Style+Year*Style)
+step(mod.reduced,scope= list(lower=mod.reduced,upper=mod.full))
+```
+Our new working model now includes Sq_feet*Quality + Sq_feet*Style.
+```{r}
+mod.reduced = lm(Price~Sq_feet+Style+Year+Quality+Lot+Sq_feet*Quality+Sq_feet*Style)
+anova(mod.reduced)
+```
+
+This model looks really good, all variables are significant with 99% confidence.
+
+```{r}
+#now we do a residuals vs. fit graph
+mod.final=lm(Price~Sq_feet+Style+Year+Quality+Lot+Sq_feet*Quality+Sq_feet*Style)
+yhat = fitted(mod.final)
+e = yhat-Price
+plot(yhat,e,xlab='fitted value',ylab='residuals',main='residulas vs.fit')
+abline(h=0,lty=2)
+```
+
+There is clearly a fanning phenomenon, which indicates non-equal variance, so we will eventually have to modify our y-values.
+
+```{r}
+qqnorm(e)
+qqline(e)
+```
+
+The qqplot is skewed on the ends, indicating non-normally distributed error, so we definitely need to perform transformations on our y-values.
+
+We will try a Box-Cox transformation on our y-values.
+
+```{r}
+library(MASS)
+bc=boxcox(mod.final,lambda=seq(-1,1))
+lambda=bc$x[which.max(bc$y)]
+lambda
+```
+
+We the function gives us a lambda of -.171, which we will use to transform our y-values.
+
+```{r}
+p = Price^(lambda)
+mod.final=lm(p~Sq_feet+Style+Year+Quality+log(Lot)+Sq_feet*Quality+Sq_feet*Style)
+yhat = fitted(mod.final)
+e = p-yhat
+plot(yhat,e,xlab='fitted value',ylab='residuals',main='residulas vs.fit')
+abline(h=0,lty=2)
+qqnorm(e)
+qqline(e)
+```
+
+Based on the graphs above, our transformations indicate normally disributed residuals and equal variance.
+
+```{r}
+#now we will do a Residuals vs. Predictor graph to check nonlinearity
+plot(log(Lot),e,xlab = 'Log(lot)',ylab = 'residual', main='Log(lot) vs. Predictor')
+abline(h=0,lty=2)
+anova(mod.final)
+s=summary(mod.final)
+s$adj.r.squared
+```
+By transforming Lot to log(Lot), we have gotten rid of our nonlinearity problem and improved our adjusted R-squared.
+
+#Research Questions
+What is the predicition 
+
+new = data.frame(x = log(43140.9))
+ans = predict(fit, new, se.fit = TRUE, interval = "prediction", level = 0.95, type = "response")
+ansinterval for the price of a house with 4000 
